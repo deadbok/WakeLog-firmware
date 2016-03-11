@@ -84,9 +84,14 @@ extern "C" {
 	#endif
 
 	/**
-	 * @brief Seconds between logging.
+	 * @brief Interval between status print.
 	 */
-	#define LOG_INT_SEC 1
+	#define STATUS_INT_SEC 60
+	
+	/**
+	 * @brief Seconds between trying to connect to the network.
+	 */
+	#define WIFI_RETRY_SEC 15
 
 #ifdef __cplusplus
 }

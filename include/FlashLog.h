@@ -42,16 +42,16 @@ template <typename T> class FlashLog
 
 			this->count = (uint16_t *)this->data;
 			this->head = (uint16_t *)(this->data + sizeof(uint16_t));
-			this->tail = (uint16_t *)(this->data + (sizeof(uint16_t) *2));
+			this->tail = (uint16_t *)(this->data + (sizeof(uint16_t) * 2));
 			this->sig = (uint16_t *)(this->data + (sizeof(uint16_t) * 3));
-			debugf(" Items: %d.", *this->count);
-			debugf(" Head: %d.", *this->head);
-			debugf(" Tail: %d.", *this->tail);
-			debugf(" Signature: x%x.", *this->sig);
+			debugf(" Signature: 0x%x.", *this->sig);
 			
 			if ((*this->sig) != this->header_sig)
 			{
 				debugf(" Signature mismatch (0x%x), initialising data.", (*this->sig));
+				debugf(" Items: %d.", *this->count);
+				debugf(" Head: %d.", *this->head);
+				debugf(" Tail: %d.", *this->tail);
 				memset(this->data, 0, this->bytes);
 				(*this->head) = this->header_bytes;
 				(*this->tail) = this->header_bytes;
@@ -160,33 +160,33 @@ template <typename T> class FlashLog
 			}
 
 			//Handle wrap around.
-			new_head = *this->head + this->item_size;
+			new_head = (*this->head) + this->item_size;
 			if (new_head > this->bytes)
 			{
 				Serial.println(" Reached the end of the buffer array.");
 				//Go back to the start.
 				new_head = this->header_bytes;
 			}
-			*this->count--;
+			(*this->count)--;
 			
-			os_memcpy(&ret, this->data + *this->head, this->item_size);
+			os_memcpy(&ret, this->data + (*this->head), this->item_size);
 			//Point head at next item.
-			*this->head = new_head;
+			(*this->head) = new_head;
 			
-			Serial.println("Saving to flash");
-			if (!system_param_save_with_protect(LOG_FLASH_SEC, this->data, this->bytes))
+			debugf(" Erasing sector 0x%x.", this->addr);
+			if (SPI_FLASH_RESULT_OK != spi_flash_erase_sector(this->addr))
 			{
-				Serial.println("ÉRROR reading flash.");
+				SYSTEM_ERROR("Erasing flash.");
 			}
-			
-			Serial.print(" Capacity: ");
-			Serial.println(this->capacity);
-			Serial.print(" Items: ");
-			Serial.println(*this->count);
-			Serial.print(" Head: ");
-			Serial.println(*this->head);
-			Serial.print(" Tail: ");
-			Serial.println(*this->tail);
+			debugf(" Saving to flash at 0x%x.", this->addr << 0xc);
+			if (SPI_FLASH_RESULT_OK != spi_flash_write(this->addr << 0xc, (uint32_t *)this->data, this->bytes))
+			{
+				SYSTEM_ERROR("Writing flash.");
+			}
+			debugf(" Capacity: %d.", this->capacity);
+		    debugf(" Items: %d.", *this->count);
+			debugf(" Head: %d.", *this->head);
+			debugf(" Tail: %d.", *this->tail);
 			
 			return(ret);
 		}
