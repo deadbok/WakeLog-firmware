@@ -92,6 +92,11 @@ extern "C" {
 	 * @brief Seconds between trying to connect to the network.
 	 */
 	#define WIFI_RETRY_SEC 15
+	
+	/**
+	 * @brief mDNS name.
+	 */
+	#define MDNS_NAME "wakelog"
 
 #ifdef __cplusplus
 }

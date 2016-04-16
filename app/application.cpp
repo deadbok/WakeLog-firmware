@@ -3,7 +3,7 @@
 #include <user_config.h>
 #include <SmingCore/SmingCore.h>
 
-#include <SmingCore/Wire.h>
+//#include <SmingCore/Wire.h>
 #include <Libraries/DS3232RTC/DS3232RTC.h>
 #include "FlashLog.h"
  
@@ -22,6 +22,7 @@ Timer statusTimer;
 FlashLog<time_t> *flog;
 HttpServer server;
 NtpClient ntpClient("pool.ntp.org", 0, onNtpReceive);
+int totalActiveSockets = 0;
 
 void printStatus()
 {
@@ -44,9 +45,9 @@ void printStatus()
 
 void onIndex(HttpRequest &request, HttpResponse &response)
 {
-	String head = "<html><head><title>OnLog</title></head><body><h2>Log:</h2>";
+	String head = "<html><head><title>OnLog</title></head><body><h2>Log:</h2><p>";
 	String body;
-	String tail = "</body></html>";
+	String tail = "</p></body></html>";
 	
 	debugf("Sending index.");
 	
@@ -55,10 +56,18 @@ void onIndex(HttpRequest &request, HttpResponse &response)
 		body += DateTime(flog->popFront()).toFullDateTimeString();
 		body += "<br />";
 	}
+	body += "<br />Active websocket connections: ";
+	body += totalActiveSockets;
 	
 	response.sendString(head);
 	response.sendString(body);
 	response.sendString(tail);
+}
+
+void onWS(HttpRequest &request, HttpResponse &response)
+{
+	debugf("Handling /ws/.");
+	response.switchingProtocols();
 }
 
 void onOther(HttpRequest &request, HttpResponse &response)
@@ -67,23 +76,50 @@ void onOther(HttpRequest &request, HttpResponse &response)
 	response.notFound();
 }
 
-void startWebServer()
+void wsConnected(WebSocket& socket)
 {
-	Serial.println("Starting web server.");
-	server.listen(80);
-	server.addPath("/", onIndex);
-	server.setDefaultHandler(onOther);
-
-	// Web Sockets configuration
-	//server->enableWebSockets(true);
-	//server.setWebSocketConnectionHandler(wsConnected);
-	//server.setWebSocketMessageHandler(wsMessageReceived);
-	//server.setWebSocketBinaryHandler(wsBinaryReceived);
-	//server.setWebSocketDisconnectionHandler(wsDisconnected);
-
-	Serial.print("Web server started.");
+	debugf("Websocket connected.");
+	totalActiveSockets++;
 }
 
+void wsMessageReceived(WebSocket& socket, const String& message)
+{
+	
+	String response;
+	DynamicJsonBuffer jsonBuffer;
+	JsonObject& root = jsonBuffer.createObject();
+	JsonArray& entries = root.createNestedArray("logs");
+	int i;
+	
+	debugf("Websocket messages received.");
+	
+	/* Just create a JSON object though it is a waste of resources.
+	 * At some point later more data might be added, JSON makes it cleaner.
+	 */
+	while (flog->getCount())
+	{
+		i++;
+		debugf(" Adding entry %d.", i);
+		entries.add(flog->popFront());
+	}
+	
+	entries.printTo(response);
+	debugf(" Sending message: %s.", response.c_str());
+
+	socket.sendString(response);
+}
+
+void wsBinaryReceived(WebSocket& socket, uint8_t* data, size_t size)
+{
+	debugf("Websocket binary received.");
+	Serial.printf("Websocket binary data recieved, size: %d\r\n", size);
+}
+
+void wsDisconnected(WebSocket& socket)
+{
+	debugf("Websocket disconnected.");
+	totalActiveSockets--;
+}
 
 void onNtpReceive(NtpClient& client, time_t timestamp)
 {
@@ -91,8 +127,22 @@ void onNtpReceive(NtpClient& client, time_t timestamp)
 
 	ntpClient.setAutoQuery(false);
 	SystemClock.setTime(timestamp);
-	//DSRTC.set(SystemClock.now());
+	DSRTC.set(SystemClock.now());
 }
+
+void startmDNS(void)
+{
+	struct mdns_info *info = (struct mdns_info *)os_zalloc(sizeof(struct mdns_info));
+	
+	Serial.println("Starting mDNS.");	
+	info->host_name = (char *)MDNS_NAME;
+	info->server_name = (char *)"iot"; // Don't add underscore.
+	info->server_port = 80;
+	info->ipAddr = WifiStation.getIP();
+	info->txt_data[0] = (char *)"version = now";
+	
+	espconn_mdns_init(info);
+};
 
 // Will be called when WiFi station was connected to AP
 void connectOk()
@@ -105,6 +155,8 @@ void connectOk()
 	ntpClient.setAutoQueryInterval(60);
 	ntpClient.setAutoQuery(true);
 	ntpClient.requestTime();
+	
+	startmDNS();
 
 	debugf("Connected time: %s.", SystemClock.now().toFullDateTimeString().c_str());
 }
@@ -113,6 +165,21 @@ void connectFail()
 {
 	debugf("No WIFI connection.");
 	WifiStation.waitConnection(connectOk, WIFI_RETRY_SEC, connectFail);
+}
+
+void startWebServer(void)
+{
+	Serial.println("Starting web server.");
+	server.listen(80);
+	server.addPath("/", onIndex);
+	server.addPath("/ws", onWS);
+	server.setDefaultHandler(onOther);
+
+	server.enableWebSockets(true);
+	server.setWebSocketConnectionHandler(wsConnected);
+	server.setWebSocketMessageHandler(wsMessageReceived);
+	server.setWebSocketBinaryHandler(wsBinaryReceived);
+	server.setWebSocketDisconnectionHandler(wsDisconnected);
 }
 
 void init()
@@ -132,7 +199,7 @@ void init()
 	debugf(" Saving log data at flash sector 0x%x.", log_addr);
 	
 	//Setup GPIO for RTC module.
-	Wire.pins(0, 2); //Change to your SCL,SDA GPIO pin number
+	Wire.pins(4, 2); //Change to your SCL,SDA GPIO pin number
     Wire.begin();
 
 	//Set timezone hourly difference to UTC
