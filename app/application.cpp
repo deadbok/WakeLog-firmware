@@ -198,9 +198,11 @@ void init()
 	log_addr = (((uint32_t)(_irom0_text_end) - INTERNAL_FLASH_START_ADDRESS + 0x4000) & 0x000fc000) >> 0xc;
 	debugf(" Saving log data at flash sector 0x%x.", log_addr);
 	
+	debugf("Setting time from real-time clock.");
 	//Setup GPIO for RTC module.
 	Wire.pins(4, 2); //Change to your SCL,SDA GPIO pin number
     Wire.begin();
+    SystemClock.setTime(DSRTC.get());
 
 	//Set timezone hourly difference to UTC
 	SystemClock.setTimeZone(1);
