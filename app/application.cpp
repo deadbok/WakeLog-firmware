@@ -96,6 +96,7 @@ void wsMessageReceived(WebSocket& socket, const String& message)
 	/* Just create a JSON object though it is a waste of resources.
 	 * At some point later more data might be added, JSON makes it cleaner.
 	 */
+	root["entries"] = flog->getCount();
 	while (flog->getCount())
 	{
 		i++;
@@ -103,7 +104,7 @@ void wsMessageReceived(WebSocket& socket, const String& message)
 		entries.add(flog->popFront());
 	}
 	
-	entries.printTo(response);
+	root.printTo(response);
 	debugf(" Sending message: %s.", response.c_str());
 
 	socket.sendString(response);
